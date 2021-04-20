@@ -15,7 +15,7 @@ from pathlib import Path
 from upload import upload_thread
 from watchdog.observers import Observer
 
-from parser import heart_lost, monitor, parser_monitor, file_monitor_handler
+from parser import heart_lost, monitor, parser_service, file_monitor_handler
 
 
 import utilites
@@ -55,6 +55,10 @@ def parsers_init():
         'file': '/tmp/zf',
         'cond': threading.Condition()
     }
+
+
+def observer_init():
+    pass
 
 
 if __name__ == "__main__":
@@ -102,20 +106,29 @@ if __name__ == "__main__":
     # event_handler = LoggingEventHandler()
     # observer.schedule(event_handler, path, recursive=True)
 
-    file = '/tmp/zf'
-    lock = threading.Lock()
-    cond = threading.Condition()
-    files = []
+    files_to_watch = []
+    for key in app_config['log'].keys():
+        print("key:", key)
+        if 'file' in app_config['log'][key]:
+            files_to_watch.append(app_config['log'][key]['file'])
 
-    if Path(file).is_file():
-        watch = observer.schedule(file_monitor_handler(
-            lock, cond, files), file, recursive=False)
-        print("watch:", watch.path)
+    files_readable_lock = threading.Lock()
+    files_readable_cond = threading.Condition()
+    files_readable = []
 
-        observer.start()
-    else:
-        print('file not exists')
+    for file in files_to_watch:
+        if os.path.exists(file):
+            watch = observer.schedule(file_monitor_handler(
+                files_readable_lock, files_readable_cond, files_readable), file, recursive=False)
+            print("watch:", watch.path)
+
+    observer.start()
+
     # observer.unschedule(watch)
+
+    service = parser_service(files_readable_lock,
+                             files_readable_cond, files_readable)
+    service.start()
 
     # 日志上传
     # msgs = queue.Queue()

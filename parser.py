@@ -69,25 +69,29 @@ class file_monitor_handler(FileSystemEventHandler):
         super().__init__()
 
 
-class parser_monitor(threading.Thread):
+class parser_service(threading.Thread):
     def __init__(self, lock, cond, files) -> None:
         self._lock = lock
-        self._files = files
+        self._files_to_read = files
         self._cond = cond
         self._stop = False
         super().__init__()
 
     def run(self) -> None:
+        # 读取要监控的文件配置 TODO
+
+        self._cond.acquire()
         while not self._stop:
             f = self._cond.wait(10)
             if f:
                 with self._lock:
-                    for file in self._files:
+                    for file in self._files_to_read:
                         print(file)
-                    self._files.clear()
+                    self._files_to_read.clear()
             else:
                 print('no file modified..')
-
+        self._cond.release()
+        # 写入更新后的文件配置 TODO
         return super().run()
 
 

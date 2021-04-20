@@ -18,32 +18,38 @@ app_config = {
             "version": 1,
             "log_type": "0x26",
             "log_subtype": "0x01",
+            "file": '/tmp/zf1'
 
         },
         "multi_login": {
             "version": 1,
             "log_type": "0x26",
             "log_subtype": "0x02",
+            "file": '/tmp/zf2'
         },
         "heart_lost": {
             "version": 1,
             "log_type": "0x26",
             "log_subtype": "0x03",
+            "file": '/tmp/zf3'
         },
         "session_start": {
             "version": 1,
             "log_type": "0x27",
             "log_subtype": "0x01",
+            "file": '/tmp/zf4'
         },
         "session_end": {
             "version": 1,
             "log_type": "0x27",
             "log_subtype": "0x02",
+            "file": '/tmp/zf5'
         },
         "switch": {
             "version": 1,
             "log_type": "0x28",
             "log_subtype": "0x01",
+            "file": '/tmp/zf6'
         },
         "cpu": {
             "version": 1,
