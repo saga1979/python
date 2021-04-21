@@ -1,5 +1,6 @@
 
 
+from re import template
 import sys
 import time
 import logging
@@ -9,17 +10,19 @@ import argparse
 import os
 import json
 import logging
+import coloredlogs
 import threading
 
 from pathlib import Path
-from upload import upload_thread
+from upload import upload_service
 from watchdog.observers import Observer
 
-from parser import heart_lost, monitor, parser_service, file_monitor_handler
+from parser import heart_lost,  parser_service
 
 
-import utilites
+from utilites import *
 from config import app_config
+from monitor import cpu_monitor, file_monitor_handler, monitor_service, mem_monitor
 
 # import socket
 # import time
@@ -36,41 +39,37 @@ from config import app_config
 
 
 def keyboardInterruptHandler(signal, frame):
-    print("KeyboardInterrupt (ID: {}) has been caught. Cleaning up...".format(signal))
+    mylogs.debug(
+        "KeyboardInterrupt (ID: {}) has been caught. Cleaning up...".format(signal))
     exit(0)
 
 
-def msgProvider(msgs, msg):
-    ev = threading.Event()
-    while True:
-        msgs.put(msg)
-        ev.wait(timeout=5)
-
-
 monitors = {}
-
-
-def parsers_init():
-    monitors['/tmp/zf'] = {
-        'file': '/tmp/zf',
-        'cond': threading.Condition()
-    }
-
-
-def observer_init():
-    pass
-
+# 待发送信息
+msgs_to_send = queue.Queue()
+msgs_to_send_lock = threading.Lock()
+msgs_to_send_cond = threading.Condition()
 
 if __name__ == "__main__":
-    # condition test
+    # 日志配置
+    logging.basicConfig(format='[%(asctime)s] [%(levelname)s]:%(message)s',
+                        level=logging.DEBUG)
 
-    # parsers_init()
+    mylogs = logging.getLogger(__name__)
+    coloredlogs.install(level=logging.DEBUG, logger=mylogs)
 
-    # heart =  heart_lost(monitors['/tmp/zf'])
+    file = logging.FileHandler(app_config['system']['log'])
+    fileformat = logging.Formatter(
+        '[%(asctime)s] [%(levelname)s]:%(message)s', datefmt="%H:%M:%S")
+    file.setFormatter(fileformat)
+    mylogs.addHandler(file)
 
-    # heart.start()
-    # heart.join()
-
+    # 检查是否已有该程序实例在运行
+    if instance_already_running():
+        mylogs.warning("another instance already running...")
+        exit(-1)
+    # 信号处理
+    signal.signal(signal.SIGINT, keyboardInterruptHandler)
     # 参数解析
     arg_parser = argparse.ArgumentParser()
     arg_parser.add_argument("-c", "--config", help="config file path")
@@ -83,61 +82,57 @@ if __name__ == "__main__":
             os.close(config_file)
             app_config = json.loads(config_str)
         except OSError as e:
-            print("{0} open failed because :\n{1}!".format(
+            mylogs.error("{0} open failed because :\n{1}!".format(
                 args.config, e.strerror))
         except json.decoder.JSONDecodeError as e:
-            print(e)
+            mylogs.error(e)
 
-        # 初始化配置
-    logging.basicConfig(format='[%(asctime)s] [%(levelname)s]:%(message)s',
-                        filename=app_config['system']['log'], level=logging.DEBUG)
+    # 初始化配置
+
+    # 从配置创建任务
 
     app_config["cam"]["eth"]["name"] = 'lo'
-    logging.debug(utilites.get_camip_v4())
-
-    signal.signal(signal.SIGINT, keyboardInterruptHandler)
-
-    logging.basicConfig(level=logging.INFO,
-                        format='%(asctime)s - %(message)s',
-                        datefmt='%Y-%m-%d %H:%M:%S')
-    path = sys.argv[1] if len(sys.argv) > 1 else '.'
-
-    observer = Observer()
-    # event_handler = LoggingEventHandler()
-    # observer.schedule(event_handler, path, recursive=True)
-
-    files_to_watch = []
-    for key in app_config['log'].keys():
-        print("key:", key)
-        if 'file' in app_config['log'][key]:
-            files_to_watch.append(app_config['log'][key]['file'])
+    logging.debug(get_camip_v4())
 
     files_readable_lock = threading.Lock()
     files_readable_cond = threading.Condition()
     files_readable = []
 
-    for file in files_to_watch:
-        if os.path.exists(file):
-            watch = observer.schedule(file_monitor_handler(
-                files_readable_lock, files_readable_cond, files_readable), file, recursive=False)
-            print("watch:", watch.path)
+    file_handler = file_monitor_handler(
+        files_readable_lock, files_readable_cond, files_readable)
 
-    observer.start()
-
-    # observer.unschedule(watch)
-
-    service = parser_service(files_readable_lock,
-                             files_readable_cond, files_readable)
-    service.start()
-
-    # 日志上传
-    # msgs = queue.Queue()
-    # upload = upload_thread(msgs)
-    # upload.start()
-
+    # 文件监控服务
+    monitorservice = monitor_service(handler=file_handler, logger=mylogs)
+    monitorservice.start()
+    # 日志服务
+    # 文件解析服务
+    parserservice = parser_service(files_readable_lock,
+                                   files_readable_cond, files_readable)
+    parserservice.start()
+    # 内存监控
+    memmonitor = mem_monitor(msgsqueue=msgs_to_send,
+                             template=app_config['log']['ram'], logger=mylogs)
+    memmonitor.start()
+    # CPU监控
+    cpumonitor = cpu_monitor(msgsqueue=msgs_to_send,
+                             template=app_config['log']['cpu'], logger=mylogs)
+    cpumonitor.start()
+    # 信息发送服务
+    uploadservice = upload_service(
+        msgs=msgs_to_send, lock=msgs_to_send_lock, cond=msgs_to_send_cond, logger=mylogs)
+    uploadservice.start()
     try:
         while True:
             time.sleep(1)
     finally:
-        observer.stop()
-        observer.join()
+        cpumonitor.stop()
+        memmonitor.stop()
+        monitorservice.stop()
+        parserservice.do_run = False
+        uploadservice.stop()
+
+        monitorservice.join()
+        parserservice.join()
+        uploadservice.join()
+        memmonitor.join()
+        cpumonitor.join()

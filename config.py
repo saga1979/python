@@ -1,6 +1,7 @@
 app_config = {
     "system": {
-        "log": "/tmp/log_monitor.log"
+        "log": "/tmp/log_monitor.log",
+        "lastread": './last_read.json'
     },
     "server": {
         "ip": "127.0.0.1",
@@ -61,7 +62,7 @@ app_config = {
             "version": 1,
             "log_type": "0x28",
             "log_subtype": "0x03",
-            "interval": 60
+            "interval": 5
         }
     },
 }

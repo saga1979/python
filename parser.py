@@ -4,20 +4,8 @@ import psutil
 import selectors
 import time
 import os
-
-from pathlib import Path
-
-from watchdog.events import LoggingEventHandler
-from watchdog.events import FileSystemEventHandler
-from watchdog.events import FileModifiedEvent
-
-
-class mem_monitor(threading.Thread):
-    pass
-
-
-class cpu_monitor(threading.Thread):
-    pass
+from utilites import StoppableThread
+from config import app_config
 
 
 class heart_lost(threading.Thread):
@@ -41,61 +29,65 @@ class heart_lost(threading.Thread):
         # return super().run()
 
 
-class file_monitor_handler(FileSystemEventHandler):
-    # def on_any_event(self, event):
-    #     print(event.event_type)
-
-    def on_modified(self, event):
-        if event.is_directory:  # 不处理目录改变
-            return
-        if not Path(event.src_path).is_file():  # 删除也会导致“修改”事件
-            return
-        else:
-            print(event.src_path, event.event_type)
-            with self._lock:
-                self._files.append(event.src_path)
-                with self._cond:
-                    self._cond.notify()
-
-    def on_deleted(self, event):
-        if not event.is_directory:
-            print(event.src_path)
-            print(event.event_type)
-
-    def __init__(self, lock, cond, files) -> None:
-        self._lock = lock
-        self._files = files
-        self._cond = cond
-        super().__init__()
-
-
 class parser_service(threading.Thread):
     def __init__(self, lock, cond, files) -> None:
         self._lock = lock
         self._files_to_read = files
         self._cond = cond
-        self._stop = False
+        self._files_manager = {}
         super().__init__()
 
     def run(self) -> None:
-        # 读取要监控的文件配置 TODO
+        # 读取监控配置 TODO
+        files_to_watch = []
+        for key in app_config['log'].keys():
+            if 'file' in app_config['log'][key] and os.path.exists(app_config['log'][key]['file']):
+                files_to_watch.append(app_config['log'][key]['file'])
+        for file in files_to_watch:
+            self._files_manager[file] = {
+                'fd': open(file, 'r'),
+                'last': ""
+            }
+            pass
+        # 根据日志中保存的最近一次记录确定要读取日志文件的位置 TODO
+        last_reads = open(app_config['system']['lastread'], 'r').read()
+        config_obj_json = json.loads(last_reads)
 
+        this_thread = threading.current_thread()
         self._cond.acquire()
-        while not self._stop:
+        while getattr(this_thread, "do_run", True):
             f = self._cond.wait(10)
             if f:
                 with self._lock:
                     for file in self._files_to_read:
-                        print(file)
+                        lines = self._files_manager[file]['fd'].readlines()
+                        for line in lines:
+                            # 处理需要的日志信息
+                            print("read file:{} {}".format(file, line))
+                        self._files_manager[file]['last'] = lines[len(
+                            lines) - 1]
+                        print("{} last line: {}".format(
+                            file, self._files_manager[file]['last']))
+
                     self._files_to_read.clear()
             else:
                 print('no file modified..')
         self._cond.release()
         # 写入更新后的文件配置 TODO
+        config = open(app_config['system']['lastread'], 'w')
+
+        config_obj_json = {}
+        for key in self._files_manager.keys():
+            config_obj_json[key] = self._files_manager[key]['last']
+
+        config.write(json.dumps(config_obj_json))
+
+        config.close()
+
         return super().run()
 
 
-class monitor(threading.Thread):
+class monitor_by_selector(threading.Thread):
     def __init__(self):
         self._sel = selectors.SelectSelector()
         self._f = open('/tmp/zf', 'r')

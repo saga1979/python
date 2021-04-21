@@ -1,26 +1,25 @@
 
 import socket
 from time import sleep
-
-try:
-    import _thread as thread  # python 3中，将thread模块重命名为_thread
-except ImportError:
-    import dummy_thread as thread
+from utilites import StoppableThread
 
 import threading
 
 
-class upload_thread(threading.Thread):
+class upload_service(StoppableThread):
     # 初始化的时候读取配置
-    def __init__(self, msgs):
+    def __init__(self, *args, **kwargs):
         self.e = threading.Event()
-        self.stop = False
-        self.msgs = msgs
+
+        self.msgs = kwargs['msgs']
+        self._cond = kwargs['cond']
+        self._lock = kwargs['lock']
+        self._logger = kwargs['logger']
         return super().__init__()
 
     def run(self):
         msgs_pool = []
-        while not self.stop:
+        while not self.stopped():
             try:
                 while not self.msgs.empty():
                     msg = self.msgs.get(timeout=5)
@@ -28,10 +27,10 @@ class upload_thread(threading.Thread):
                     self.msgs.task_done()
 
                 for msg in msgs_pool:
-                    print(msg)
+                    self._logger.debug(msg)
                 if len(msgs_pool) > 0:
                     msgs_pool.clear()
                 self.e.wait(timeout=5)
             except KeyboardInterrupt:
-                self.stop = True
+                self.stop()
                 return
