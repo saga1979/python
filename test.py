@@ -1,8 +1,8 @@
 import json
 
-file = open("./last_read.json")
+file = open("./last_read.json", 'w+')
 content = file.read()
 print(content)
 
-json = json.loads(file)
+json = json.loads(content)
 print(json)

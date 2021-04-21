@@ -56,8 +56,9 @@ class parser_service(StoppableThread):
             }
 
         # 根据日志中保存的最近一次记录确定要读取日志文件的位置 TODO
-        last_reads_file = open(app_config['system']['lastread'], 'w+')
+        last_reads_file = open(app_config['system']['lastread'], 'r')
         last_reads = last_reads_file.read()
+        last_reads_file.close()
         try:
             last_read_obj = json.loads(last_reads)
         except json.decoder.JSONDecodeError as e:
@@ -92,9 +93,9 @@ class parser_service(StoppableThread):
                 'time': self._files_manager[key]['time']
             }
 
-        last_reads_file.write(json.dumps(last_read_obj))
+        with open(app_config['system']['lastread'], 'w') as last_reads_file:
+            last_reads_file.write(json.dumps(last_read_obj))
 
-        last_reads_file.close()
         self._logger.debug("parser service ended..")
         return super().run()
 
