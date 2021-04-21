@@ -64,16 +64,17 @@ class cpu_monitor(StoppableThread):
                 continue
             wait_total = 0
             percent = psutil.cpu_percent()
-            msg = {
-                'version': self._template['version'],
-                'log_type': self._template['log_type'],
-                'log_subtype': self._template['log_subtype'],
-                'log_time': time.strftime('%Y-%m-%d %H:%M:%S', time.localtime()),
-                'cpu': "{}%".format(percent),
-                'node_ip': get_camip_v4(),
-                'node_hostname': get_hostname()
-            }
-            self._msgs.put(msg)
+            if percent > 0:  # 没有使用率无意义
+                msg = {
+                    'version': self._template['version'],
+                    'log_type': self._template['log_type'],
+                    'log_subtype': self._template['log_subtype'],
+                    'log_time': time.strftime('%Y-%m-%d %H:%M:%S', time.localtime()),
+                    'cpu': "{}%".format(percent),
+                    'node_ip': get_camip_v4(),
+                    'node_hostname': get_hostname()
+                }
+                self._msgs.put(msg)
         self._logger.debug("cpu monitor stopped..")
         return super().run()
 

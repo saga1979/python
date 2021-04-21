@@ -24,19 +24,6 @@ from utilites import *
 from config import app_config
 from monitor import cpu_monitor, file_monitor_handler, monitor_service, mem_monitor
 
-# import socket
-# import time
-# client = socket.socket(socket.AF_INET, socket.SOCK_STREAM, 0)
-
-# client.connect(("localhost", 3333))
-
-# while True:
-#     client.send(b"hello python")
-
-#     msg = client.recv(1024)
-#     print(msg.decode())
-#     time.sleep(1)
-
 
 def keyboardInterruptHandler(signal, frame):
     mylogs.debug(
@@ -106,8 +93,8 @@ if __name__ == "__main__":
     monitorservice.start()
     # 日志服务
     # 文件解析服务
-    parserservice = parser_service(files_readable_lock,
-                                   files_readable_cond, files_readable)
+    parserservice = parser_service(lock=files_readable_lock,
+                                   cond=files_readable_cond, files=files_readable, logger=mylogs)
     parserservice.start()
     # 内存监控
     memmonitor = mem_monitor(msgsqueue=msgs_to_send,
@@ -119,7 +106,8 @@ if __name__ == "__main__":
     cpumonitor.start()
     # 信息发送服务
     uploadservice = upload_service(
-        msgs=msgs_to_send, lock=msgs_to_send_lock, cond=msgs_to_send_cond, logger=mylogs)
+        msgs=msgs_to_send, lock=msgs_to_send_lock,
+        cond=msgs_to_send_cond, logger=mylogs, server=app_config['server'])
     uploadservice.start()
     try:
         while True:
@@ -128,7 +116,7 @@ if __name__ == "__main__":
         cpumonitor.stop()
         memmonitor.stop()
         monitorservice.stop()
-        parserservice.do_run = False
+        parserservice.stop()
         uploadservice.stop()
 
         monitorservice.join()

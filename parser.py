@@ -29,35 +29,43 @@ class heart_lost(threading.Thread):
         # return super().run()
 
 
-class parser_service(threading.Thread):
-    def __init__(self, lock, cond, files) -> None:
-        self._lock = lock
-        self._files_to_read = files
-        self._cond = cond
+class parser_service(StoppableThread):
+    def __init__(self, *args, **kwargs):
+        self._lock = kwargs['lock']
+        self._files_to_read = kwargs['files']
+        self._cond = kwargs['cond']
+        self._logger = kwargs['logger']
         self._files_manager = {}
-        super().__init__()
+        super().__init__(*args)
 
     def run(self) -> None:
+        self._logger.debug("parser service started..")
         # 读取监控配置 TODO
-        files_to_watch = []
         for key in app_config['log'].keys():
-            if 'file' in app_config['log'][key] and os.path.exists(app_config['log'][key]['file']):
-                files_to_watch.append(app_config['log'][key]['file'])
-        for file in files_to_watch:
-            self._files_manager[file] = {
-                'fd': open(file, 'r'),
-                'last': ""
-            }
-            pass
-        # 根据日志中保存的最近一次记录确定要读取日志文件的位置 TODO
-        last_reads = open(app_config['system']['lastread'], 'r').read()
-        config_obj_json = json.loads(last_reads)
 
-        this_thread = threading.current_thread()
+            if 'file' not in app_config['log'][key]:
+                continue
+            file = app_config['log'][key]['file']
+            if not os.path.exists(file):
+                continue
+            self._files_manager[app_config['log'][key]['file']] = {
+                'fd': open(file, 'r'),
+                'type': key,
+                'last': "",
+                'time': ""
+            }
+
+        # 根据日志中保存的最近一次记录确定要读取日志文件的位置 TODO
+        last_reads_file = open(app_config['system']['lastread'], 'w+')
+        last_reads = last_reads_file.read()
+        try:
+            last_read_obj = json.loads(last_reads)
+        except json.decoder.JSONDecodeError as e:
+            self._logger.error(e.msg)
+
         self._cond.acquire()
-        while getattr(this_thread, "do_run", True):
-            f = self._cond.wait(10)
-            if f:
+        while not self.stopped():
+            if self._cond.wait(10):
                 with self._lock:
                     for file in self._files_to_read:
                         lines = self._files_manager[file]['fd'].readlines()
@@ -66,24 +74,28 @@ class parser_service(threading.Thread):
                             print("read file:{} {}".format(file, line))
                         self._files_manager[file]['last'] = lines[len(
                             lines) - 1]
+                        self._files_manager[file]['time'] = time.strftime(
+                            '%Y-%m-%d %H:%M:%S', time.localtime())
                         print("{} last line: {}".format(
                             file, self._files_manager[file]['last']))
 
                     self._files_to_read.clear()
-            else:
-                print('no file modified..')
+
         self._cond.release()
         # 写入更新后的文件配置 TODO
-        config = open(app_config['system']['lastread'], 'w')
 
-        config_obj_json = {}
+        last_read_obj = {}
         for key in self._files_manager.keys():
-            config_obj_json[key] = self._files_manager[key]['last']
+            last_read_obj[self._files_manager[key]['type']] = {
+                'file': key,
+                'last':  self._files_manager[key]['last'],
+                'time': self._files_manager[key]['time']
+            }
 
-        config.write(json.dumps(config_obj_json))
+        last_reads_file.write(json.dumps(last_read_obj))
 
-        config.close()
-
+        last_reads_file.close()
+        self._logger.debug("parser service ended..")
         return super().run()
 
 

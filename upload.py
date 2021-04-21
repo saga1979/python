@@ -15,11 +15,18 @@ class upload_service(StoppableThread):
         self._cond = kwargs['cond']
         self._lock = kwargs['lock']
         self._logger = kwargs['logger']
+        self._client = socket.socket(socket.AF_INET, socket.SOCK_STREAM, 0)
+        self._server = kwargs['server']
         return super().__init__()
 
     def run(self):
+        try:
+            self._client.connect((self._server['ip'], self._server['port']))
+        except ConnectionRefusedError as e:
+            self._logger.error(e.strerror)
         msgs_pool = []
         while not self.stopped():
+
             try:
                 while not self.msgs.empty():
                     msg = self.msgs.get(timeout=5)
