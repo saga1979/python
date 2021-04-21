@@ -121,10 +121,19 @@ class monitor_service(StoppableThread):
         files_to_watch = []
         # 'file'内容可为描述规则，根据规则动态生成具体得文件名，此处为测试需要按文件名处理
         for key in app_config['log'].keys():
-            if 'file' in app_config['log'][key]:
-                files_to_watch.append(app_config['log'][key]['file'])
+            if 'file' not in app_config['log'][key]:
+                continue
+            file = app_config['log'][key]['file']
+            try:
+                file = eval(app_config['log'][key]['file'])
+            except NameError as e:
+                self._logger.debug(e)
+            except Exception as e:
+                self._logger.debug(e)
+            files_to_watch.append(file)
 
         for file in files_to_watch:
+            self._logger.debug("watch:{}".format(file))
             if os.path.exists(file):
                 watch = observer.schedule(
                     self._file_watch_handler, file, recursive=False)
@@ -136,3 +145,8 @@ class monitor_service(StoppableThread):
         while not self.stopped():
             time.sleep(1)
         return super().run()
+
+    def check(self) -> bool:
+        new_day = time.localtime().tm_mday
+
+        pass

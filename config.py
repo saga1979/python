@@ -1,3 +1,4 @@
+import time
 app_config = {
     "system": {
         "log": "/tmp/log_monitor.log",
@@ -26,13 +27,13 @@ app_config = {
             "version": 1,
             "log_type": "0x26",
             "log_subtype": "0x02",
-            "file": '/tmp/zf2'
+            "file": r"'/tmp/z{}'.format(time.strftime('%Y%m%d', time.localtime()))"
         },
         "heart_lost": {
             "version": 1,
             "log_type": "0x26",
             "log_subtype": "0x03",
-            "file": '/tmp/zf3'
+            "file": "\'/tmp/f{}\'.format(time.strftime(\'%Y%m%d\', time.localtime()))"
         },
         "session_start": {
             "version": 1,
