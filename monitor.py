@@ -1,3 +1,4 @@
+import mysql.connector
 import time
 import threading
 from watchdog.observers import Observer
@@ -90,7 +91,7 @@ class file_monitor_handler(FileSystemEventHandler):
         if not os.path.exists(event.src_path):  # 删除也会导致“修改”事件
             return
         else:
-            #print(event.src_path, event.event_type)
+            # print(event.src_path, event.event_type)
             with self._lock:
                 self._files.append(event.src_path)
                 with self._cond:
@@ -108,7 +109,7 @@ class file_monitor_handler(FileSystemEventHandler):
         super().__init__()
 
 
-class monitor_service(StoppableThread):
+class file_monitor(StoppableThread):
     def __init__(self, *args, **kwargs):
         self._file_watch_handler = kwargs['handler']
         self._logger = kwargs['logger']
@@ -192,3 +193,57 @@ class monitor_service(StoppableThread):
                 else:
                     self._logger.debug("log file:{} not exists.".format(file))
         self._files_to_watch = new_files_to_watch
+
+
+class database_monitor(StoppableThread):
+    def __init__(self, *args, **kwargs):
+        self._logger = kwargs['logger']
+        self._db_conf = kwargs['db']
+        super().__init__(*args)
+
+    def run(self) -> None:
+        # 读取记录的配置，如果没有，last设置为当前时间 TODO
+        self._db_conf['last'] = time.strftime(
+            '%Y-%m-%d %H:%M:%S', time.localtime())
+
+        conn = None
+
+        try:
+            count = 1
+            while (conn is None or not conn.is_connected()) and not self.stopped():
+                self._logger.debug(
+                    "try to connect db {} times...".format(count))
+                count += 1
+                conn = mysql.connector.connect(host=self._db_conf['host'],
+                                               database=self._db_conf['db'],
+                                               user=self._db_conf['user'],
+                                               password=self._db_conf['password'])
+                if conn.is_connected():
+                    break
+
+                time.sleep(1)
+
+        except Exception as e:
+            self._logger.error(e)
+
+        if conn is None or not conn.is_connected():
+            self._logger.error('cannot Connected to MySQL database')
+            return
+        cursor = conn.cursor()
+
+        while not self.stopped():
+            cursor.execute("select * from {} where sentTime > \"{}\"".format(
+                self._db_conf['table'], self._db_conf['last']))
+            records = cursor.fetchall()
+            for record in records:
+                self._db_conf['last'] = record[8]
+                print(self._db_conf['last'])
+            count = 1
+            while not self.stopped() and count < self._db_conf['interval']:
+                time.sleep(1)
+                count += 1
+
+        if conn is not None and conn.is_connected():
+            conn.close()
+
+        return super().run()

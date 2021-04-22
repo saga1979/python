@@ -22,7 +22,7 @@ from parser import heart_lost,  parser_service
 
 from utilites import *
 from config import app_config
-from monitor import cpu_monitor, file_monitor_handler, monitor_service, mem_monitor
+from monitor import cpu_monitor, file_monitor_handler, file_monitor, mem_monitor, database_monitor
 
 
 def keyboardInterruptHandler(signal, frame):
@@ -39,15 +39,16 @@ msgs_to_send_cond = threading.Condition()
 
 if __name__ == "__main__":
     # 日志配置
-    logging.basicConfig(format='[%(asctime)s] [%(levelname)s]:%(message)s',
+    logging.basicConfig(format='[%(asctime)s] {%(filename)s:%(lineno)d} [%(levelname)s]:%(message)s',
                         level=logging.DEBUG)
 
     mylogs = logging.getLogger(__name__)
-    coloredlogs.install(level=logging.DEBUG, logger=mylogs)
+    coloredlogs.install(level=logging.DEBUG, logger=mylogs,
+                        fmt='[%(asctime)s] {%(module)s:%(funcName)s:%(lineno)d} [%(levelname)s]:%(message)s')
 
     file = logging.FileHandler(app_config['system']['log'])
     fileformat = logging.Formatter(
-        '[%(asctime)s] [%(levelname)s]:%(message)s', datefmt="%H:%M:%S")
+        '[%(asctime)s] {%(pathname)s:%(lineno)d} [%(levelname)s]:%(message)s', datefmt="%H:%M:%S")
     file.setFormatter(fileformat)
     mylogs.addHandler(file)
 
@@ -92,10 +93,10 @@ if __name__ == "__main__":
     file_to_func_lock = threading.Lock()
 
     # 文件监控服务
-    monitorservice = monitor_service(handler=file_handler,
-                                     file_2_func=(
-                                         file_to_func, file_to_func_lock),
-                                     logger=mylogs)
+    monitorservice = file_monitor(handler=file_handler,
+                                  file_2_func=(
+                                      file_to_func, file_to_func_lock),
+                                  logger=mylogs)
     monitorservice.start()
 
     # 文件解析服务
@@ -114,6 +115,10 @@ if __name__ == "__main__":
     cpumonitor = cpu_monitor(msgsqueue=msgs_to_send,
                              template=app_config['log']['cpu'], logger=mylogs)
     cpumonitor.start()
+
+    # 数据库监控
+    dbmonitor = database_monitor(logger=mylogs, db=app_config['database'])
+    dbmonitor.start()
     # 信息发送服务
     uploadservice = upload_service(
         msgs=msgs_to_send, lock=msgs_to_send_lock,
@@ -123,12 +128,14 @@ if __name__ == "__main__":
         while True:
             time.sleep(1)
     finally:
+        dbmonitor.stop()
         cpumonitor.stop()
         memmonitor.stop()
         monitorservice.stop()
         parserservice.stop()
         uploadservice.stop()
 
+        dbmonitor.join()
         monitorservice.join()
         parserservice.join()
         uploadservice.join()

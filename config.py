@@ -15,6 +15,16 @@ app_config = {
         }
 
     },
+    "database": {
+        'type': "mysql",
+        'host': '10.0.0.2',
+        'user': 'saga',
+        'password': '123456',
+        'db': 'test',
+        'table': '_cmdalarm',
+        'interval': 30
+
+    },
     "log": {
         "danger_op": {
             "version": 1,
