@@ -84,12 +84,13 @@ class file_monitor_handler(FileSystemEventHandler):
     #     print(event.event_type)
 
     def on_modified(self, event):
+
         if event.is_directory:  # 不处理目录改变
             return
         if not os.path.exists(event.src_path):  # 删除也会导致“修改”事件
             return
         else:
-            print(event.src_path, event.event_type)
+            #print(event.src_path, event.event_type)
             with self._lock:
                 self._files.append(event.src_path)
                 with self._cond:
@@ -111,42 +112,83 @@ class monitor_service(StoppableThread):
     def __init__(self, *args, **kwargs):
         self._file_watch_handler = kwargs['handler']
         self._logger = kwargs['logger']
+        self._file_map_watch = {}
+        self.__observer = Observer()
+        self._files_to_watch = []
+        self._file_with_func = kwargs['file_2_func'][0]  # 正在监控的文件到功能的映射
+        self._file_with_func_lock = kwargs['file_2_func'][1]
         super().__init__(*args)
 
     def run(self) -> None:
-        observer = Observer()
-        # event_handler = LoggingEventHandler()
-        # observer.schedule(event_handler, path, recursive=True)
+        self._logger.debug("file monitor started..")
+        # self.__observer.start()
+        while not self.stopped():
+            files_to_watch = self.__get_files_to_watch__()
+            diff = False
+            for file in files_to_watch:
+                if file not in self._files_to_watch:
+                    diff = True
+                    break
+            if diff:
+                self.__update_observer_schedule__(files_to_watch)
 
-        files_to_watch = []
-        # 'file'内容可为描述规则，根据规则动态生成具体得文件名，此处为测试需要按文件名处理
+            time.sleep(1)
+        self._logger.debug("file monitor ended..")
+        self.__observer.unschedule_all()
+        self._file_map_watch.clear()
+        self._files_to_watch.clear()
+        return super().run()
+
+    def __get_files_to_watch__(self) -> dict:
+        files_to_watch = {}
         for key in app_config['log'].keys():
             if 'file' not in app_config['log'][key]:
                 continue
             file = app_config['log'][key]['file']
             try:
                 file = eval(app_config['log'][key]['file'])
+                files_to_watch[file] = key  # {"/tmp/zf" : "switch"}
             except NameError as e:
-                self._logger.debug(e)
+                pass
+                # self._logger.debug(e)
             except Exception as e:
-                self._logger.debug(e)
-            files_to_watch.append(file)
+                pass
+                # self._logger.debug(e)
 
-        for file in files_to_watch:
-            self._logger.debug("watch:{}".format(file))
-            if os.path.exists(file):
-                watch = observer.schedule(
-                    self._file_watch_handler, file, recursive=False)
-                self._logger.debug("watch:{}".format(watch.path))
+        return files_to_watch
 
-        observer.start()
+    def __update_observer_schedule__(self, new_files_to_watch) -> None:
 
-    # observer.unschedule(watch)
-        while not self.stopped():
-            time.sleep(1)
-        return super().run()
+        # 先删除不在监控列表的任务
+        for file in self._files_to_watch:
+            if file not in new_files_to_watch:
+                if file in self._file_map_watch:
+                    watch = self._file_map_watch[file]
+                    self.__observer.unschedule(watch)
+                    self._file_map_watch.pop(file)
+                    with self._file_with_func_lock:
+                        self._file_with_func[file]['fd'].close()  # 关闭文件描述符
+                        self._file_with_func.pop(file)
+                    self._logger.debug("remove watch:{}".format(file))
 
-    def check(self) -> bool:
-        new_day = time.localtime().tm_mday
-
-        pass
+        # 再加入新的监控任务
+        for file in new_files_to_watch:
+            if file not in self._files_to_watch:
+                if os.path.exists(file):  # 有些文件到时间点不生成怎么办？
+                    watch = self.__observer.schedule(
+                        self._file_watch_handler, file, recursive=False)
+                    self._file_map_watch[file] = watch
+                    with self._file_with_func_lock:
+                        self._file_with_func[file] = {}
+                        self._file_with_func[file]['func'] = new_files_to_watch[file]
+                        self._file_with_func[file]['fd'] = open(file, 'r')
+                        if 'keytext' in app_config['log'][new_files_to_watch[file]]:
+                            self._file_with_func[file]['keytext'] = \
+                                app_config['log'][new_files_to_watch[file]
+                                                  ]['keytext']
+                        if not self.__observer.is_alive():
+                            self.__observer.start()
+                    self._logger.debug("new watch:{}".format(file))
+                else:
+                    self._logger.debug("log file:{} not exists.".format(file))
+        self._files_to_watch = new_files_to_watch

@@ -88,13 +88,23 @@ if __name__ == "__main__":
     file_handler = file_monitor_handler(
         files_readable_lock, files_readable_cond, files_readable)
 
+    file_to_func = {}
+    file_to_func_lock = threading.Lock()
+
     # 文件监控服务
-    monitorservice = monitor_service(handler=file_handler, logger=mylogs)
+    monitorservice = monitor_service(handler=file_handler,
+                                     file_2_func=(
+                                         file_to_func, file_to_func_lock),
+                                     logger=mylogs)
     monitorservice.start()
-    # 日志服务
+
     # 文件解析服务
     parserservice = parser_service(lock=files_readable_lock,
-                                   cond=files_readable_cond, files=files_readable, logger=mylogs)
+                                   cond=files_readable_cond,
+                                   files=files_readable,
+                                   file_2_func=(
+                                       file_to_func, file_to_func_lock),
+                                   logger=mylogs)
     parserservice.start()
     # 内存监控
     memmonitor = mem_monitor(msgsqueue=msgs_to_send,

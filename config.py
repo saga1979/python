@@ -27,13 +27,16 @@ app_config = {
             "version": 1,
             "log_type": "0x26",
             "log_subtype": "0x02",
-            "file": r"'/tmp/z{}'.format(time.strftime('%Y%m%d', time.localtime()))"
+            "file": r"'/tmp/z{}'.format(time.strftime('%Y%m%d%M', time.localtime()))",
+            "keytext": r"111"
         },
         "heart_lost": {
             "version": 1,
             "log_type": "0x26",
             "log_subtype": "0x03",
-            "file": "\'/tmp/f{}\'.format(time.strftime(\'%Y%m%d\', time.localtime()))"
+            "file": "\'/tmp/f{}\'.format(time.strftime(\'%Y%m%d\', time.localtime()))",
+            "keytext": r"lost packet(s) for [camha2]"
+
         },
         "session_start": {
             "version": 1,
@@ -51,7 +54,8 @@ app_config = {
             "version": 1,
             "log_type": "0x28",
             "log_subtype": "0x01",
-            "file": '/tmp/zf6'
+            "file": r"'/mnt/e/work/ruining/python/ha-log-{}.log'.format(time.strftime('%Y%m%d', time.localtime()))",
+            "keytext": "foreign HA resource release completed"
         },
         "cpu": {
             "version": 1,

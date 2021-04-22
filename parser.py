@@ -32,28 +32,15 @@ class heart_lost(threading.Thread):
 class parser_service(StoppableThread):
     def __init__(self, *args, **kwargs):
         self._lock = kwargs['lock']
-        self._files_to_read = kwargs['files']
+        self._files_monified = kwargs['files']
         self._cond = kwargs['cond']
         self._logger = kwargs['logger']
-        self._files_manager = {}
+        self._file_with_func = kwargs['file_2_func'][0]
+        self._file_with_func_lock = kwargs['file_2_func'][1]
         super().__init__(*args)
 
     def run(self) -> None:
         self._logger.debug("parser service started..")
-        # 读取监控配置 TODO
-        for key in app_config['log'].keys():
-
-            if 'file' not in app_config['log'][key]:
-                continue
-            file = app_config['log'][key]['file']
-            if not os.path.exists(file):
-                continue
-            self._files_manager[app_config['log'][key]['file']] = {
-                'fd': open(file, 'r'),
-                'type': key,
-                'last': "",
-                'time': ""
-            }
 
         # 根据日志中保存的最近一次记录确定要读取日志文件的位置 TODO
         last_reads_file = open(app_config['system']['lastread'], 'r')
@@ -68,33 +55,41 @@ class parser_service(StoppableThread):
         while not self.stopped():
             if self._cond.wait(10):
                 with self._lock:
-                    for file in self._files_to_read:
-                        lines = self._files_manager[file]['fd'].readlines()
+                    for file in self._files_monified:
+                        lines = self._file_with_func[file]['fd'].readlines()
                         for line in lines:
                             # 处理需要的日志信息
-                            print("read file:{} {}".format(file, line))
-                        self._files_manager[file]['last'] = lines[len(
-                            lines) - 1]
-                        self._files_manager[file]['time'] = time.strftime(
-                            '%Y-%m-%d %H:%M:%S', time.localtime())
-                        print("{} last line: {}".format(
-                            file, self._files_manager[file]['last']))
+                            if self._file_with_func[file]['keytext'] in line:
+                                self._logger.warning(
+                                    "file:{} {}".format(file, "find key text!!!"))
+                        if len(lines) > 0:
+                            self._file_with_func[file]['last'] = lines[len(
+                                lines) - 1]
+                            self._file_with_func[file]['time'] = time.strftime(
+                                '%Y-%m-%d %H:%M:%S', time.localtime())
+                            self._logger.debug("{}'s last line is:\ {}".format(
+                                file, self._file_with_func[file]['last']))
+                        else:
+                            self._logger.warning(
+                                "{} read 0 lines!".format(file))
 
-                    self._files_to_read.clear()
+                    self._files_monified.clear()
 
         self._cond.release()
         # 写入更新后的文件配置 TODO
 
         last_read_obj = {}
-        for key in self._files_manager.keys():
-            last_read_obj[self._files_manager[key]['type']] = {
+        for key in self._file_with_func.keys():
+            if 'last' not in self._file_with_func[key]:
+                continue
+            last_read_obj[self._file_with_func[key]['func']] = {
                 'file': key,
-                'last':  self._files_manager[key]['last'],
-                'time': self._files_manager[key]['time']
+                'last':  self._file_with_func[key]['last'],
+                'time': self._file_with_func[key]['time']
             }
 
-        with open(app_config['system']['lastread'], 'w') as last_reads_file:
-            last_reads_file.write(json.dumps(last_read_obj))
+        with open(app_config['system']['lastread'], 'w') as last_read:
+            last_read.write(json.dumps(last_read_obj))
 
         self._logger.debug("parser service ended..")
         return super().run()

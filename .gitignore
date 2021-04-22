@@ -3,4 +3,6 @@ __pycache__/config.cpython-38.pyc
 __pycache__/parser.cpython-38.pyc
 __pycache__/upload.cpython-38.pyc
 __pycache__/utilites.cpython-38.pyc
+*.log
+/*.log
 
