@@ -8,7 +8,7 @@ from watchdog.events import FileModifiedEvent
 import os
 import psutil
 
-from utilites import StoppableThread, get_camip_v4, get_hostname
+from utilites import StoppableThread, get_camip_v4, get_camip_v6, get_hostname
 from config import app_config
 
 
@@ -148,14 +148,18 @@ class file_monitor(StoppableThread):
             file = app_config['log'][key]['file']
             try:
                 file = eval(app_config['log'][key]['file'])
-                files_to_watch[file] = key  # {"/tmp/zf" : "switch"}
+                # 一个文件，多种功能
+                if file in files_to_watch and key != files_to_watch[file][0]:
+                    files_to_watch[file].append(key)
+                elif file not in files_to_watch:
+                    files_to_watch[file] = [key]  # {"/tmp/zf" : ["switch"]}
             except NameError as e:
                 pass
                 # self._logger.debug(e)
             except Exception as e:
                 pass
                 # self._logger.debug(e)
-
+#        self._logger.debug(files_to_watch)
         return files_to_watch
 
     def __update_observer_schedule__(self, new_files_to_watch) -> None:
@@ -174,31 +178,41 @@ class file_monitor(StoppableThread):
 
         # 再加入新的监控任务
         for file in new_files_to_watch:
-            if file not in self._files_to_watch:
-                if os.path.exists(file):  # 有些文件到时间点不生成怎么办？
-                    watch = self.__observer.schedule(
-                        self._file_watch_handler, file, recursive=False)
-                    self._file_map_watch[file] = watch
-                    with self._file_with_func_lock:
-                        self._file_with_func[file] = {}
-                        self._file_with_func[file]['func'] = new_files_to_watch[file]
-                        self._file_with_func[file]['fd'] = open(file, 'r')
-                        if 'keytext' in app_config['log'][new_files_to_watch[file]]:
-                            self._file_with_func[file]['keytext'] = \
-                                app_config['log'][new_files_to_watch[file]
-                                                  ]['keytext']
-                        if not self.__observer.is_alive():
-                            self.__observer.start()
-                    self._logger.debug("new watch:{}".format(file))
-                else:
-                    self._logger.debug("log file:{} not exists.".format(file))
+            if file in self._files_to_watch:
+                continue
+            if not os.path.exists(file):  # 有些文件到时间点不生成怎么办？
+                self._logger.debug("log file:{} not exists.".format(file))
+                continue
+
+            watch = self.__observer.schedule(
+                self._file_watch_handler, file, recursive=False)
+            self._file_map_watch[file] = watch
+            with self._file_with_func_lock:
+                self._file_with_func[file] = {}
+                functions = new_files_to_watch[file]
+                self._file_with_func[file]['func'] = functions
+                self._file_with_func[file]['fd'] = open(file, 'r')
+                for function in functions:
+                    if 'keytext' in self._file_with_func[file]:
+                        self._file_with_func[file]['keytext'].append(
+                            app_config['log'][function]['keytext'])
+                    else:
+                        self._file_with_func[file]['keytext'] = [
+                            app_config['log'][function]['keytext']]
+                if not self.__observer.is_alive():
+                    self.__observer.start()
+            self._logger.debug("new watch:{}".format(file))
+
         self._files_to_watch = new_files_to_watch
+        #self._logger.debug("file to func:{}".format(self._file_with_func))
 
 
 class database_monitor(StoppableThread):
     def __init__(self, *args, **kwargs):
         self._logger = kwargs['logger']
         self._db_conf = kwargs['db']
+        self._msgs = kwargs['msgsqueue']
+        self._template = kwargs['template']
         super().__init__(*args)
 
     def run(self) -> None:
@@ -208,42 +222,68 @@ class database_monitor(StoppableThread):
 
         conn = None
 
-        try:
-            count = 1
-            while (conn is None or not conn.is_connected()) and not self.stopped():
-                self._logger.debug(
-                    "try to connect db {} times...".format(count))
-                count += 1
-                conn = mysql.connector.connect(host=self._db_conf['host'],
-                                               database=self._db_conf['db'],
-                                               user=self._db_conf['user'],
-                                               password=self._db_conf['password'])
-                if conn.is_connected():
-                    break
+        # try:
+        #     count = 1
+        #     while (conn is None or not conn.is_connected()) and not self.stopped():
+        #         self._logger.debug(
+        #             "try to connect db {} times...".format(count))
+        #         count += 1
+        #         conn = mysql.connector.connect(host=self._db_conf['host'],
+        #                                        database=self._db_conf['db'],
+        #                                        user=self._db_conf['user'],
+        #                                        password=self._db_conf['password'])
+        #         if conn.is_connected():
+        #             break
 
-                time.sleep(1)
+        #         time.sleep(1)
 
-        except Exception as e:
-            self._logger.error(e)
+        # except Exception as e:
+        #     self._logger.error(e)
 
-        if conn is None or not conn.is_connected():
-            self._logger.error('cannot Connected to MySQL database')
-            return
-        cursor = conn.cursor()
+        # if conn is None or not conn.is_connected():
+        #     self._logger.error('cannot Connected to MySQL database')
+        #     return
 
         while not self.stopped():
+
+            conn = mysql.connector.connect(host=self._db_conf['host'],
+                                           database=self._db_conf['db'],
+                                           user=self._db_conf['user'],
+                                           password=self._db_conf['password'])
+            if conn is None or not conn.is_connected():
+                time.sleep(1)
+                self._logger.debug("connect to database failed..")
+                continue
+
+            cursor = conn.cursor()
             cursor.execute("select * from {} where sentTime > \"{}\"".format(
                 self._db_conf['table'], self._db_conf['last']))
             records = cursor.fetchall()
+            cursor.close()
+
             for record in records:
-                self._db_conf['last'] = record[8]
+                self._db_conf['last'] = record[self._db_conf['timecolumn']]
                 print(self._db_conf['last'])
+                msg = {
+                    'version': self._template['version'],
+                    'log_type': self._template['log_type'],
+                    'log_subtype': self._template['log_subtype'],
+                    'log_time': record[self._db_conf['timecolumn']],
+                    'dev_name': get_hostname(),
+                    'dev_ipv4': get_camip_v4(),
+                    'dev_ipv6': get_camip_v6(),
+                    'session_id': record[self._db_conf['sessioncolumn']],
+                    'action_id': record[self._db_conf['cmdcolumn']],
+                    'approvers': "",
+                    'operate_content': record[self._db_conf['operatecolumn']]
+
+                }
+                self._msgs.put(msg)
+            if conn is not None and conn.is_connected():
+                conn.close()
             count = 1
             while not self.stopped() and count < self._db_conf['interval']:
                 time.sleep(1)
                 count += 1
-
-        if conn is not None and conn.is_connected():
-            conn.close()
 
         return super().run()

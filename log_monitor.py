@@ -17,7 +17,7 @@ from pathlib import Path
 from upload import upload_service
 from watchdog.observers import Observer
 
-from parser import heart_lost,  parser_service
+from parser import heart_lost,  file_parser_service
 
 
 from utilites import *
@@ -100,12 +100,13 @@ if __name__ == "__main__":
     monitorservice.start()
 
     # 文件解析服务
-    parserservice = parser_service(lock=files_readable_lock,
-                                   cond=files_readable_cond,
-                                   files=files_readable,
-                                   file_2_func=(
-                                       file_to_func, file_to_func_lock),
-                                   logger=mylogs)
+    parserservice = file_parser_service(lock=files_readable_lock,
+                                        cond=files_readable_cond,
+                                        files=files_readable,
+                                        msgsqueue=msgs_to_send,
+                                        file_2_func=(
+                                            file_to_func, file_to_func_lock),
+                                        logger=mylogs)
     parserservice.start()
     # 内存监控
     memmonitor = mem_monitor(msgsqueue=msgs_to_send,
@@ -117,7 +118,8 @@ if __name__ == "__main__":
     cpumonitor.start()
 
     # 数据库监控
-    dbmonitor = database_monitor(logger=mylogs, db=app_config['database'])
+    dbmonitor = database_monitor(template=app_config['log']['danger_op'],
+                                 msgsqueue=msgs_to_send, logger=mylogs, db=app_config['database'])
     dbmonitor.start()
     # 信息发送服务
     uploadservice = upload_service(
