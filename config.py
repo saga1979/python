@@ -22,7 +22,11 @@ app_config = {
         'password': '123456',
         'db': 'test',
         'table': '_cmdalarm',
-        'interval': 30
+        'timecolumn': 8,
+        'sessioncolumn': 15,
+        'cmdcolumn': 16,
+        'operatecolumn': 2,
+        'interval': 5
 
     },
     "log": {
@@ -30,8 +34,6 @@ app_config = {
             "version": 1,
             "log_type": "0x26",
             "log_subtype": "0x01",
-            "file": '/tmp/zf1'
-
         },
         "multi_login": {
             "version": 1,
@@ -40,12 +42,12 @@ app_config = {
             "file": r"'/tmp/z{}'.format(time.strftime('%Y%m%d%M', time.localtime()))",
             "keytext": r"111"
         },
-        "heart_lost": {
+        "heartloss": {
             "version": 1,
             "log_type": "0x26",
             "log_subtype": "0x03",
-            "file": "\'/tmp/f{}\'.format(time.strftime(\'%Y%m%d\', time.localtime()))",
-            "keytext": r"lost packet(s) for [camha2]"
+            "file": r"'/mnt/e/work/ruining/python/ha-log-{}.log'.format(time.strftime('%Y%m%d', time.localtime()))",
+            "keytext": r"lost packet(s) for"
 
         },
         "session_start": {
