@@ -1,4 +1,5 @@
 
+import json
 import socket
 from time import sleep
 from utilites import StoppableThread
@@ -44,11 +45,13 @@ class upload_service(StoppableThread):
                 self.stop()
         if not self._client is None:
             self._client.close()
+        self._logger.warning("upload service ended....")
 
     def send(self, msg):
         totalsent = 0
-        while totalsent < len(msg):
-            sent = self._client.send(msg[totalsent:])
+        msg_to_send = json.dumps(msg).encode('UTF-8')
+        while totalsent < len(msg_to_send):
+            sent = self._client.send(msg_to_send[totalsent:])
             if sent == 0:
                 raise RuntimeError("socket connection broken")
             totalsent = totalsent + sent

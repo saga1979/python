@@ -239,7 +239,9 @@ class database_monitor(StoppableThread):
             with open(self._log_file, 'r') as log_fd:
                 self._db_record = json.load(log_fd)
         except FileNotFoundError as e:
-            self._logger.debug(e)
+            self._logger.warning(e)
+        except json.decoder.JSONDecodeError as e:
+            self._logger.warning(e)
         conn = None
         cursor = None
         while not self.stopped():
@@ -250,7 +252,7 @@ class database_monitor(StoppableThread):
                                                password=self._db_conf['password'])
                 if conn is None or not conn.is_connected():
                     time.sleep(1)
-                    self._logger.debug("connect to database failed..")
+                    self._logger.warning("connect to database failed..")
                     continue
 
                 cursor = conn.cursor()
@@ -285,6 +287,7 @@ class database_monitor(StoppableThread):
                                 'operate_content': record[self._template['danger_op']['operatecolumn']]
 
                             }
+                            self._logger.debug("[database][op]:{}".format(msg))
                             self._msgs.put(msg)
                 # 会话记录并没有时间可作为排序，因为完全有可能一个会话迟于其他会话开始，早于其他会话结束，或者其他情况
                 # cursor.execute("select * from {} where ")
@@ -309,7 +312,6 @@ class database_monitor(StoppableThread):
                         sID_done = '\"\"'
                     sql = r"select * from {} where sID not in ({})".format(
                         session_table_name, sID_done)
-                    print(sql)
                     cursor.execute(sql)
                     records = cursor.fetchall()
                     for record in records:
@@ -398,6 +400,8 @@ class database_monitor(StoppableThread):
 
                                 })
                         for sub_msg in msg:
+                            self._logger.debug(
+                                "[database][session]:{}".format(sub_msg))
                             self._msgs.put(sub_msg)
             except mysql.connector.errors.ProgrammingError as e:
                 self._logger.error(e)

@@ -151,7 +151,7 @@ class file_parser_service(StoppableThread):
                         pos = fd.tell()
                     for msg in msgs:
                         self._msgs.put(msg)
-                        self._logger.debug("create msg:{}".format(msg))
+                        self._logger.debug("[ha]:{}".format(msg))
 
                     last_read[file]['switch'] = pos
                     if len(msgs) == 0:  # 如果没有需要的记录，要回退文件指针
