@@ -1,3 +1,4 @@
+import json
 import mysql.connector
 import time
 import threading
@@ -214,6 +215,7 @@ class database_monitor(StoppableThread):
         self._msgs = kwargs['msgsqueue']
         self._template = kwargs['template']
         self._db_record = {}
+        self._log_file = '/tmp/monitor.log'
         super().__init__(*args)
 
     def run(self) -> None:
@@ -231,8 +233,10 @@ class database_monitor(StoppableThread):
         }
         self._db_record['session'] = {
             'done': [],
-            'todo': {}
+            'todo': []
         }
+        with open(self._log_file, 'r') as log_fd:
+            self._db_record = json.load(log_fd)
         conn = None
         cursor = None
         while not self.stopped():
@@ -306,19 +310,92 @@ class database_monitor(StoppableThread):
                     cursor.execute(sql)
                     records = cursor.fetchall()
                     for record in records:
+                        msg = []
                         if record[0] in self._db_record['session']['todo']:
                             # 只发送结束会话得日志
                             if record[5] is not None:  # 结束时间不为空，添加当前记录得sid到完成
                                 self._db_record['session']['done'].append(
                                     record[0])
-                                self._db_conf['session']['todo'].pop(record[0])
+                                self._db_conf['session']['todo'].remove(
+                                    record[0])
                         else:
                             if record[4] is not None and record[5] is not None:  # 既有开始又有结束
                                 self._db_record['session']['done'].append(
                                     record[0])
+                                msg.append({
+                                    'version': self._template['session_start']['version'],
+                                    'log_type': self._template['session_start']['log_type'],
+                                    'log_subtype': self._template['session_start']['log_subtype'],
+                                    'log_time': record[self._template['session_start']['timecolumn']],
+                                    'dev_name': get_hostname(),
+                                    'dev_ipv4': get_camip_v4(),
+                                    'dev_ipv6': get_camip_v6(),
+                                    'access_id': 0,
+                                    'session_id': record[0],
+
+                                    'resource_name': "",
+                                    'resource_addr': "",
+                                    "resource_port": 0,
+                                    "resource_account": "",
+                                    "resource_account_type": 1,
+                                    "tool_name": record[12],
+                                    "user_id": record[0],
+                                    "user_name": record[1],
+                                    "user_addr": "",
+                                    "user_port": 0
+
+                                })
+                                msg.append({
+                                    'version': self._template['session_end']['version'],
+                                    'log_type': self._template['session_end']['log_type'],
+                                    'log_subtype': self._template['session_end']['log_subtype'],
+                                    'log_time': record[self._template['session_end']['timecolumn']],
+                                    'dev_name': get_hostname(),
+                                    'dev_ipv4': get_camip_v4(),
+                                    'dev_ipv6': get_camip_v6(),
+                                    'access_id': 0,
+                                    'session_id': record[0],
+
+                                    'resource_name': "",
+                                    'resource_addr': "",
+                                    "resource_port": 0,
+                                    "resource_account": "",
+                                    "resource_account_type": 1,
+                                    "tool_name": record[12],
+                                    "user_id": record[0],
+                                    "user_name": record[1],
+                                    "user_addr": "",
+                                    "user_port": 0
+
+                                })
                             elif record[4] is not None:  # 开始时间不为空，添加当前记录到待完成
-                                self._db_conf['session']['todo'][record[0]] = {}
-                        pass
+                                self._db_conf['session']['todo'].append(
+                                    record[0])
+                                msg.append({
+                                    'version': self._template['session_start']['version'],
+                                    'log_type': self._template['session_start']['log_type'],
+                                    'log_subtype': self._template['session_start']['log_subtype'],
+                                    'log_time': record[self._template['session_start']['timecolumn']],
+                                    'dev_name': get_hostname(),
+                                    'dev_ipv4': get_camip_v4(),
+                                    'dev_ipv6': get_camip_v6(),
+                                    'access_id': 0,
+                                    'session_id': record[0],
+
+                                    'resource_name': "",
+                                    'resource_addr': "",
+                                    "resource_port": 0,
+                                    "resource_account": "",
+                                    "resource_account_type": 1,
+                                    "tool_name": record[12],
+                                    "user_id": record[0],
+                                    "user_name": record[1],
+                                    "user_addr": "",
+                                    "user_port": 0
+
+                                })
+                        for sub_msg in msg:
+                            self._msgs.put(sub_msg)
             except mysql.connector.errors.ProgrammingError as e:
                 self._logger.error(e)
             finally:
@@ -330,3 +407,7 @@ class database_monitor(StoppableThread):
                 while not self.stopped() and count < self._db_conf['interval']:
                     time.sleep(1)
                     count += 1
+
+        # 将缓存记录写入文件
+        with open(self._log_file, 'w') as log_fd:
+            log_fd.write(json.dumps(self._db_record))

@@ -57,6 +57,7 @@ app_config = {
             "version": 1,
             "log_type": "0x27",
             "log_subtype": "0x01",
+            "timecolumn": 4,
             'type': "table",
             "table": r" 'session{}'.format(time.strftime('%Y%m%d', time.localtime())"
         },
@@ -64,6 +65,7 @@ app_config = {
             "version": 1,
             "log_type": "0x27",
             "log_subtype": "0x02",
+            "timecolumn": 5,
             'type': "table",
             "table": r" 'session{}'.format(time.strftime('%Y%m%d', time.localtime())"
         },
