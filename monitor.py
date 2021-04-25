@@ -215,7 +215,7 @@ class database_monitor(StoppableThread):
         self._msgs = kwargs['msgsqueue']
         self._template = kwargs['template']
         self._db_record = {}
-        self._log_file = '/tmp/monitor.log'
+        self._log_file = app_config['system']['db_last']
         super().__init__(*args)
 
     def run(self) -> None:
@@ -235,8 +235,11 @@ class database_monitor(StoppableThread):
             'done': [],
             'todo': []
         }
-        with open(self._log_file, 'r') as log_fd:
-            self._db_record = json.load(log_fd)
+        try:
+            with open(self._log_file, 'r') as log_fd:
+                self._db_record = json.load(log_fd)
+        except FileNotFoundError as e:
+            self._logger.debug(e)
         conn = None
         cursor = None
         while not self.stopped():

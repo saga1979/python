@@ -6,3 +6,5 @@ __pycache__/utilites.cpython-38.pyc
 *.log
 /*.log
 
+db_last.json
+ha_last.json

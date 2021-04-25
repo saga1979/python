@@ -44,15 +44,22 @@ class file_parser_service(StoppableThread):
     def run(self) -> None:
         self._logger.debug("parser service started..")
 
-        # 根据日志中保存的最近一次记录确定要读取日志文件的位置 TODO
-        last_reads_file = open(app_config['system']['lastread'], 'r')
-        last_reads = last_reads_file.read()
-        last_reads_file.close()
-        try:
-            last_read_obj = json.loads(last_reads)
-        except json.decoder.JSONDecodeError as e:
-            self._logger.error(e.msg)
+        last_read = {}
+        """根据日志中保存的最近一次记录确定要读取日志文件的位置 
+        {
+            '[file1]':{ 'switch':[pos], ['loss'] : [time]},
+            '[file2]': { 'switch':[pos], ['loss'] : [pos]},,
+            ............
+        }
+        """
 
+        try:
+            with open(app_config['system']['ha_last'], 'r') as ha_last_fd:
+                last_read = json.load(ha_last_fd)
+        except FileNotFoundError as e:
+            self._logger.debug(e)
+        except json.decoder.JSONDecodeError as e:
+            self._logger.debug(e)
         self._cond.acquire()
         while not self.stopped():
             if not self._cond.wait(10):
@@ -60,20 +67,29 @@ class file_parser_service(StoppableThread):
 
             with self._lock:
                 for file in self._files_monified:
+                    if file not in last_read:
+                        last_read[file] = {}
                     fd = self._file_with_func[file]['fd']
                     """ 这个地方可以优化
-                    只需要记录准备切换时的位置,标识字符串：
-                    Apr 09 12:58:28 camha1 ipfail: [4632]: info: giveup() called (timeout worked)
-                    Apr 09 12:58:28 camha1 heartbeat: [3981]: info: camha1 wants to go standby [foreign]
-                    Apr 09 12:58:29 camha1 heartbeat: [3981]: info: standby: camha2 can take our foreign resources
-                    """
+                        只需要记录准备切换时的位置,标识字符串：
+                        Apr 09 12:58:28 camha1 ipfail: [4632]: info: giveup() called (timeout worked)
+                        Apr 09 12:58:28 camha1 heartbeat: [3981]: info: camha1 wants to go standby [foreign]
+                        Apr 09 12:58:29 camha1 heartbeat: [3981]: info: standby: camha2 can take our foreign resources
+                        """
                     pos = fd.tell()
+                    # 如果以前读过，就移动指针到上一次读取得位置。对于心跳丢失，按时间来标记
+                    if file in last_read and 'switch' in last_read[file]:
+                        pos = last_read[file]['switch']
+                        fd.seek(pos)
+
                     failover_action = 2  # 主备切换类型
                     has_switch = False
-                    has_switch_last_datetime = None
+                    find_switch_info = False
                     has_loss = False
-                    has_loss_last_datetime = None
+
                     msgs = []
+                    func = self._file_with_func[file]['func']
+
                     while True:
                         line = fd.readline()
                         if len(line) == 0:
@@ -82,17 +98,13 @@ class file_parser_service(StoppableThread):
 
                         if "wants to go standby" in line:  # 双机互备开始的标识符,这地方要记录，否则无法判断切换类型
                             pos = fd.tell()
+                            find_switch_info = True
                         elif "camha2 can take our foreign resources" in line:  # "切换动作，1：到备机 2：到主机",
                             failover_action = 1
+                            find_switch_info = True
                         elif "remote resource transition completed" in line:  # 切换完成
-
+                            find_switch_info = True
                             pos = fd.tell()
-                            the_datetime_str = '{} {} {} {}'.format(time.localtime().tm_year,
-                                                                    fields[0], fields[1], fields[2])
-                            the_datetime = datetime.datetime.strptime(the_datetime_str,
-                                                                      '%Y % b % d % H: % M: % S')
-                            if has_switch_last_datetime >= the_datetime:
-                                continue
                             has_switch = True
                             msg = {
                                 'version': app_config['log']['switch']['version'],
@@ -109,18 +121,18 @@ class file_parser_service(StoppableThread):
                             """心跳丢失
                             可能出现在双机切换过程中，所以需要记住其时间，避免文件指针回退的时候重复读取
                             """
-
-                            pos = fd.tell()
                             the_datetime_str = '{} {} {} {}'.format(time.localtime().tm_year,
                                                                     fields[0], fields[1], fields[2])
                             the_datetime = datetime.datetime.strptime(the_datetime_str,
-                                                                      '%Y % b % d % H: % M: % S')
-
-                            if has_loss_last_datetime >= the_datetime:  # 就是已经记录过
-                                continue
-
+                                                                      '%Y %b %d %H:%M:%S')
+                            # 就是已经记录过
+                            if 'loss' in last_read[file]:
+                                last_datetime = datetime.datetime.strptime(
+                                    last_read[file]['loss'], '%Y %b %d %H:%M:%S')
+                                if last_datetime >= the_datetime:
+                                    continue
                             has_loss = True
-                            has_loss_last_datetime = the_datetime
+                            last_read[file]['loss'] = the_datetime_str
 
                             msg = {
                                 'version': app_config['log']['heartloss']['version'],
@@ -135,86 +147,25 @@ class file_parser_service(StoppableThread):
                             }
                             msgs.append(msg)
 
+                    if not find_switch_info:  # 如果没有发现双机切换得日志相关信息，就记录当前得文件指针
+                        pos = fd.tell()
                     for msg in msgs:
                         self._msgs.put(msg)
                         self._logger.debug("create msg:{}".format(msg))
 
+                    last_read[file]['switch'] = pos
                     if len(msgs) == 0:  # 如果没有需要的记录，要回退文件指针
                         fd.seek(pos)
-
-                    # lines = fd.readlines()
-
-                    # for line in lines:
-                    #     if "camha2 can take our foreign resources" in line:
-                    #         failover_action = 1  # 到备机
-                    #     # 处理需要的日志信息
-                    #     for index in range(len(self._file_with_func[file]['keytext'])):
-                    #         if self._file_with_func[file]['keytext'][index] not in line:
-                    #             continue
-                    #         # 根据不同的功能对应的json模板生成消息
-                    #         for func in self._file_with_func[file]['func']:
-                    #             msg = {}
-                    #             if 'heartloss' in func:  # 心跳丢失
-                    #                 fields = line.split()
-
-                    #                 msg = {
-                    #                     'version': app_config['log'][func]['version'],
-                    #                     'log_type': app_config['log'][func]['log_type'],
-                    #                     'log_subtype': app_config['log'][func]['log_subtype'],
-                    #                     'log_time': time.strftime('%Y-%m-%d %H:%M:%S', time.localtime()),
-                    #                     'dev_ipv4': get_camip_v4(),
-                    #                     'dev_name': get_hostname(),
-                    #                     'dev_ipv6': get_camip_v6(),
-                    #                     'heartloss_node_ip': "",
-                    #                     "heartloss_node_hostname": fields[fields.index('for') + 1]
-                    #                 }
-                    #             elif 'switch' in func:  # 双机切换
-                    #                 msg = {
-                    #                     'version': app_config['log'][func]['version'],
-                    #                     'log_type': app_config['log'][func]['log_type'],
-                    #                     'log_subtype': app_config['log'][func]['log_subtype'],
-                    #                     'log_time': time.strftime('%Y-%m-%d %H:%M:%S', time.localtime()),
-                    #                     'failover_action': failover_action,  # "切换动作，1：到备机 2：到主机",
-                    #                     'active_node_ip': get_camip_v4(),
-                    #                     'active_node_hostname': get_hostname(),
-                    #                 }
-                    #                 pass
-                    #             if len(msg) > 0:
-                    #                 self._msgs.put(msg)
-                    #             else:
-                    #                 fd.seek(pos)
-                    #             self._logger.warning(
-                    #                 "file:{} find :{}".format(file, self._file_with_func[file]['keytext'][index]))
-                    # if len(lines) > 0:  # 应该判断一下，如果没有发现要报警的信息怎么办？TODO
-                    #     self._file_with_func[file]['last'] = lines[len(
-                    #         lines) - 1]
-                    #     self._file_with_func[file]['time'] = time.strftime(
-                    #         '%Y-%m-%d %H:%M:%S', time.localtime())
-                    #     self._logger.debug("{}'s last line is:\ {}".format(
-                    #         file, self._file_with_func[file]['last']))
-                    # else:
-                    #     self._logger.warning(
-                    #         "{} read 0 lines!".format(file))
-
+                        last_read[file]['switch'] = pos
+                    else:
+                        last_read[file]['switch'] = fd.tell()
                 self._files_monified.clear()
 
         self._cond.release()
         # 写入更新后的文件配置 TODO
 
-        last_read_obj = {}
-        for key in self._file_with_func.keys():
-            if 'last' not in self._file_with_func[key]:
-                continue
-            # 其实多个功能使用同一个文件时，记录一个功能的最后读取文本就行了
-            for func in self._file_with_func[key]['func']:
-                last_read_obj[func] = {
-                    'file': key,
-                    'last':  self._file_with_func[key]['last'],
-                    'time': self._file_with_func[key]['time']
-                }
-
-        with open(app_config['system']['lastread'], 'w') as last_read:
-            last_read.write(json.dumps(last_read_obj))
+        with open(app_config['system']['ha_last'], 'w') as last_read_fd:
+            last_read_fd.write(json.dumps(last_read))
 
         self._logger.debug("parser service ended..")
         return super().run()

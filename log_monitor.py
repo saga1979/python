@@ -12,6 +12,7 @@ import json
 import logging
 import coloredlogs
 import threading
+import atexit
 
 from pathlib import Path
 from upload import upload_service
@@ -28,7 +29,14 @@ from monitor import cpu_monitor, file_monitor_handler, file_monitor, mem_monitor
 def keyboardInterruptHandler(signal, frame):
     mylogs.debug(
         "KeyboardInterrupt (ID: {}) has been caught. Cleaning up...".format(signal))
+
     exit(0)
+
+
+def app_exit():
+    with open(app_config['system']['app_config'], 'w') as app_config_fd:
+        app_config_fd.write(json.dumps(app_config, indent=4))
+    pass
 
 
 monitors = {}
@@ -58,6 +66,7 @@ if __name__ == "__main__":
         exit(-1)
     # 信号处理
     signal.signal(signal.SIGINT, keyboardInterruptHandler)
+    atexit.register(app_exit)
     # 参数解析
     arg_parser = argparse.ArgumentParser()
     arg_parser.add_argument("-c", "--config", help="config file path")
@@ -65,10 +74,8 @@ if __name__ == "__main__":
     args = arg_parser.parse_args()
     if args.config:
         try:
-            config_file = os.open(args.config, os.O_RDONLY)
-            config_str = os.read(config_file, 2048).decode("utf-8")
-            os.close(config_file)
-            app_config = json.loads(config_str)
+            with open(args.config, 'r') as config_fd:
+                app_config = json.load(config_fd)
         except OSError as e:
             mylogs.error("{0} open failed because :\n{1}!".format(
                 args.config, e.strerror))
