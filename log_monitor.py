@@ -30,7 +30,7 @@ def keyboardInterruptHandler(signal, frame):
     mylogs.debug(
         "KeyboardInterrupt (ID: {}) has been caught. Cleaning up...".format(signal))
 
-    exit(0)
+    sys.exit()
 
 
 def app_exit():
@@ -56,7 +56,7 @@ if __name__ == "__main__":
 
     file = logging.FileHandler(app_config['system']['log'])
     fileformat = logging.Formatter(
-        '[%(asctime)s] {%(pathname)s:%(lineno)d} [%(levelname)s]:%(message)s', datefmt="%H:%M:%S")
+        '[%(asctime)s] {%(pathname)s:%(lineno)d} [%(levelname)s]:%(message)s', datefmt="%Y-%m-%D %H:%M:%S")
     file.setFormatter(fileformat)
     mylogs.addHandler(file)
 
