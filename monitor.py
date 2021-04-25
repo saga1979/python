@@ -204,7 +204,7 @@ class file_monitor(StoppableThread):
             self._logger.debug("new watch:{}".format(file))
 
         self._files_to_watch = new_files_to_watch
-        #self._logger.debug("file to func:{}".format(self._file_with_func))
+        # self._logger.debug("file to func:{}".format(self._file_with_func))
 
 
 class database_monitor(StoppableThread):
@@ -213,77 +213,120 @@ class database_monitor(StoppableThread):
         self._db_conf = kwargs['db']
         self._msgs = kwargs['msgsqueue']
         self._template = kwargs['template']
+        self._db_record = {}
         super().__init__(*args)
 
     def run(self) -> None:
         # 读取记录的配置，如果没有，last设置为当前时间 TODO
-        self._db_conf['last'] = time.strftime(
-            '%Y-%m-%d %H:%M:%S', time.localtime())
+        # self._db_conf['danger_op_last'] = time.strftime(
+        #    '%Y-%m-%d %H:%M:%S', time.localtime())
+        # 会话记录没有时间字段，TODO
+        # self._db_conf['session_last'] = time.strftime(
+        #    '%Y-%m-%d %H:%M:%S', time.localtime())
+        """数据库按照记录索引定位，比如，会话记录就没有该条记录的产生时间
 
+        """
+        self._db_record['danger_op'] = {
+            'last': 1
+        }
+        self._db_record['session'] = {
+            'done': [],
+            'todo': {}
+        }
         conn = None
-
-        # try:
-        #     count = 1
-        #     while (conn is None or not conn.is_connected()) and not self.stopped():
-        #         self._logger.debug(
-        #             "try to connect db {} times...".format(count))
-        #         count += 1
-        #         conn = mysql.connector.connect(host=self._db_conf['host'],
-        #                                        database=self._db_conf['db'],
-        #                                        user=self._db_conf['user'],
-        #                                        password=self._db_conf['password'])
-        #         if conn.is_connected():
-        #             break
-
-        #         time.sleep(1)
-
-        # except Exception as e:
-        #     self._logger.error(e)
-
-        # if conn is None or not conn.is_connected():
-        #     self._logger.error('cannot Connected to MySQL database')
-        #     return
-
+        cursor = None
         while not self.stopped():
+            try:
+                conn = mysql.connector.connect(host=self._db_conf['host'],
+                                               database=self._db_conf['db'],
+                                               user=self._db_conf['user'],
+                                               password=self._db_conf['password'])
+                if conn is None or not conn.is_connected():
+                    time.sleep(1)
+                    self._logger.debug("connect to database failed..")
+                    continue
 
-            conn = mysql.connector.connect(host=self._db_conf['host'],
-                                           database=self._db_conf['db'],
-                                           user=self._db_conf['user'],
-                                           password=self._db_conf['password'])
-            if conn is None or not conn.is_connected():
-                time.sleep(1)
-                self._logger.debug("connect to database failed..")
-                continue
+                cursor = conn.cursor()
+                # cursor.execute("select * from {} where sentTime > \"{}\"".format(
+                #     self._db_conf['table'], self._db_conf['last']))
 
-            cursor = conn.cursor()
-            cursor.execute("select * from {} where sentTime > \"{}\"".format(
-                self._db_conf['table'], self._db_conf['last']))
-            records = cursor.fetchall()
-            cursor.close()
+                cursor.execute("select count(*) from _cmdalarm;")
+                records = cursor.fetchall()
 
-            for record in records:
-                self._db_conf['last'] = record[self._db_conf['timecolumn']]
-                print(self._db_conf['last'])
-                msg = {
-                    'version': self._template['version'],
-                    'log_type': self._template['log_type'],
-                    'log_subtype': self._template['log_subtype'],
-                    'log_time': record[self._db_conf['timecolumn']],
-                    'dev_name': get_hostname(),
-                    'dev_ipv4': get_camip_v4(),
-                    'dev_ipv6': get_camip_v6(),
-                    'session_id': record[self._db_conf['sessioncolumn']],
-                    'action_id': record[self._db_conf['cmdcolumn']],
-                    'approvers': "",
-                    'operate_content': record[self._db_conf['operatecolumn']]
+                if len(records) > 0:
+                    alarm_count = records[0][0]
+                    alarm_readed = self._db_record['danger_op']['last']
+                    if alarm_count > alarm_readed:
+                        cursor.execute("select * from _cmdalarm limit {},{}".format(
+                            alarm_readed, alarm_count - alarm_readed))
+                        records = cursor.fetchall()
+                        # 更新已读取的记录索引
+                        self._db_record['danger_op']['last'] = alarm_readed + \
+                            len(records)
+                        for record in records:
+                            msg = {
+                                'version': self._template['danger_op']['version'],
+                                'log_type': self._template['danger_op']['log_type'],
+                                'log_subtype': self._template['danger_op']['log_subtype'],
+                                'log_time': record[self._template['danger_op']['timecolumn']],
+                                'dev_name': get_hostname(),
+                                'dev_ipv4': get_camip_v4(),
+                                'dev_ipv6': get_camip_v6(),
+                                'session_id': record[self._template['danger_op']['sessioncolumn']],
+                                'action_id': record[self._template['danger_op']['cmdcolumn']],
+                                'approvers': "",
+                                'operate_content': record[self._template['danger_op']['operatecolumn']]
 
-                }
-                self._msgs.put(msg)
-            if conn is not None and conn.is_connected():
-                conn.close()
-            count = 1
-            while not self.stopped() and count < self._db_conf['interval']:
-                time.sleep(1)
-                count += 1
+                            }
+                            self._msgs.put(msg)
+                # 会话记录并没有时间可作为排序，因为完全有可能一个会话迟于其他会话开始，早于其他会话结束，或者其他情况
+                # cursor.execute("select * from {} where ")
+                session_table_name = "session{}".format(
+                    time.strftime('%Y%m%d', time.localtime()))
+                cursor.execute(
+                    "select count(*) from {};".format(session_table_name))
+                records = cursor.fetchall()
 
-        return super().run()
+                if len(records) > 0:
+                    alarm_count = records[0][0]
+                    # sID_done = ",".join(
+                    #     [elem for elem in self._db_record['session']['done']])
+                    sID_done = ""
+                    for sID in self._db_record['session']['done']:
+                        if len(sID_done) == 0:
+                            sID_done = r'"{}"'.format(sID)
+                        else:
+                            sID_done = r'{},"{}"'.format(sID_done, sID)
+
+                    if len(sID_done) == 0:
+                        sID_done = '\"\"'
+                    sql = r"select * from {} where sID not in ({})".format(
+                        session_table_name, sID_done)
+                    print(sql)
+                    cursor.execute(sql)
+                    records = cursor.fetchall()
+                    for record in records:
+                        if record[0] in self._db_record['session']['todo']:
+                            # 只发送结束会话得日志
+                            if record[5] is not None:  # 结束时间不为空，添加当前记录得sid到完成
+                                self._db_record['session']['done'].append(
+                                    record[0])
+                                self._db_conf['session']['todo'].pop(record[0])
+                        else:
+                            if record[4] is not None and record[5] is not None:  # 既有开始又有结束
+                                self._db_record['session']['done'].append(
+                                    record[0])
+                            elif record[4] is not None:  # 开始时间不为空，添加当前记录到待完成
+                                self._db_conf['session']['todo'][record[0]] = {}
+                        pass
+            except mysql.connector.errors.ProgrammingError as e:
+                self._logger.error(e)
+            finally:
+                if cursor is not None:
+                    cursor.close()
+                if conn is not None and conn.is_connected():
+                    conn.close()
+                count = 1
+                while not self.stopped() and count < self._db_conf['interval']:
+                    time.sleep(1)
+                    count += 1

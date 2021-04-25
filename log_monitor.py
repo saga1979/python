@@ -118,8 +118,11 @@ if __name__ == "__main__":
     cpumonitor.start()
 
     # 数据库监控
-    dbmonitor = database_monitor(template=app_config['log']['danger_op'],
-                                 msgsqueue=msgs_to_send, logger=mylogs, db=app_config['database'])
+    dbmonitor = database_monitor(template={
+        'danger_op': app_config['log']['danger_op'],
+        'session_start': app_config['log']['session_start'],
+        'session_end': app_config['log']['session_end']},
+        msgsqueue=msgs_to_send, logger=mylogs, db=app_config['database'])
     dbmonitor.start()
     # 信息发送服务
     uploadservice = upload_service(
