@@ -1,6 +1,9 @@
 {
     "system": {
-        "log": "./log_monitor.log",
+        "log": {
+            "file": "./log_monitor.log",
+            "mode": "a+"
+        },
         "ha_last": "./ha_last.json",
         "db_last": "./db_last.json",
         "app_config": "./app_config.json"

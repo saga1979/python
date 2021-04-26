@@ -42,16 +42,17 @@ msgs_to_send_cond = threading.Condition()
 
 if __name__ == "__main__":
     # 日志配置
-    logging.basicConfig(format='[%(asctime)s] {%(filename)s:%(lineno)d} [%(levelname)s]:%(message)s',
+    logging.basicConfig(format='[%(asctime)s] {%(module)s:%(lineno)d} [%(levelname)s]:%(message)s',
                         level=logging.DEBUG)
 
     mylogs = logging.getLogger(__name__)
     coloredlogs.install(level=logging.DEBUG, logger=mylogs,
                         fmt='[%(asctime)s] {%(module)s:%(funcName)s:%(lineno)d} [%(levelname)s]:%(message)s')
 
-    file = logging.FileHandler(app_config['system']['log'])
+    file = logging.FileHandler(
+        app_config['system']['log']['file'], app_config['system']['log']['mode'])
     fileformat = logging.Formatter(
-        '[%(asctime)s] {%(pathname)s:%(lineno)d} [%(levelname)s]:%(message)s', datefmt="%Y-%m-%D %H:%M:%S")
+        '[%(asctime)s] {%(module)s:%(lineno)d} [%(levelname)s]:%(message)s', datefmt="%Y-%m-%D %H:%M:%S")
     file.setFormatter(fileformat)
     mylogs.addHandler(file)
 
