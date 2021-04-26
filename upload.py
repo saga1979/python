@@ -25,6 +25,7 @@ class upload_service(StoppableThread):
             self._client.connect((self._server['ip'], self._server['port']))
         except ConnectionRefusedError as e:
             self._logger.error(e.strerror)
+        # load cache msgs from disk cache file ? TODO
         msgs_pool = []
         while not self.stopped():
             try:
@@ -35,10 +36,13 @@ class upload_service(StoppableThread):
                 for msg in msgs_pool:
                     self._logger.debug(msg)
                     self.send(msg)
-                if len(msgs_pool) > 0:
-                    msgs_pool.clear()
+                # if send msg failed, or msgs pool size than 1000, write cache to disk file?TODO
+                msgs_pool.clear()
                 self.e.wait(timeout=5)
             except KeyboardInterrupt:
+                self.stop()
+            except RuntimeError as e:
+                self._logger.error(e)
                 self.stop()
             except Exception as e:
                 self._logger.error(e)

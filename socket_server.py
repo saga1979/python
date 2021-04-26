@@ -13,6 +13,8 @@ def echo_server(address):
     reads = []
     reads.append(sock)
     client = None
+    print("socket server started...")
+    stop = False
     while True:
         r, _, _ = select.select(reads, [], [], 10)
         for s in r:
