@@ -7,7 +7,16 @@
     },
     "server": {
         "ip": "127.0.0.1",
-        "port": 3333
+        "port": 3333,
+        "reconn": 5,
+        "queue": {
+            "max": 1000,
+            "cache": false,
+            "log": [
+                true,
+                "./[20210426]send.log"
+            ]
+        }
     },
     "cam": {
         "eth": {

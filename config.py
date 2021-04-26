@@ -8,7 +8,13 @@ app_config = {
     },
     "server": {
         "ip": "127.0.0.1",
-        "port": 3333
+        "port": 3333,
+        "reconn": 5,  # 重连得间隔（秒）
+        "queue": {
+            "max": 1000,
+            "cache": False,
+            "log": (True, './[{}]send.log'.format(time.strftime('%Y%m%d', time.localtime())))
+        }
     },
     "cam": {
         "eth": {

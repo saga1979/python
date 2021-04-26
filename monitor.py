@@ -404,7 +404,7 @@ class database_monitor(StoppableThread):
                                 "[database][session]:{}".format(sub_msg))
                             self._msgs.put(sub_msg)
             except mysql.connector.errors.ProgrammingError as e:
-                self._logger.error(e)
+                self._logger.warning(e)
             finally:
                 if cursor is not None:
                     cursor.close()

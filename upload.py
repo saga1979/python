@@ -2,6 +2,9 @@
 import json
 import socket
 from time import sleep
+import time
+
+from mysql.connector import connect
 from utilites import StoppableThread
 
 import threading
@@ -20,33 +23,52 @@ class upload_service(StoppableThread):
         return super().__init__(*args)
 
     def run(self):
-        try:
-            self._client = socket.socket(socket.AF_INET, socket.SOCK_STREAM, 0)
-            self._client.connect((self._server['ip'], self._server['port']))
-        except ConnectionRefusedError as e:
-            self._logger.error(e.strerror)
         # load cache msgs from disk cache file ? TODO
         msgs_pool = []
+        queue_max = self._server['queue']['max']
+        is_cache = self._server['queue']['cache']
+        is_log = self._server['queue']['log'][0]
+        reconnect_interval = self._server['reconn']
+        self._client = None
         while not self.stopped():
+            connected = True
+            if self.is_socket_closed(self._client):
+                try:
+                    self._client = socket.socket(
+                        socket.AF_INET, socket.SOCK_STREAM, 0)
+                    self._client.connect(
+                        (self._server['ip'], self._server['port']))
+                    self._logger.info("connected to server!")
+                except ConnectionRefusedError as e:
+                    sleeped = 0
+                    connected = False
+                    self._logger.debug(
+                        "try reconnect server after {} seconds".format(reconnect_interval))
+                    while not self.stopped() and sleeped < reconnect_interval:
+                        time.sleep(1)
+                        sleeped += 1
+            if not connected:
+                continue
             try:
                 while not self.msgs.empty():
                     msg = self.msgs.get(timeout=5)
                     msgs_pool.append(msg)
                     self.msgs.task_done()
+                # if send msg failed, or msgs pool size than 1000, write cache to disk file?TODO
+
                 for msg in msgs_pool:
                     self._logger.debug(msg)
                     self.send(msg)
-                # if send msg failed, or msgs pool size than 1000, write cache to disk file?TODO
+                    with open(eval(self._server['queue']['log'][1]), 'a+') as log_file:
+                        json.dump(msg, log_file)
                 msgs_pool.clear()
                 self.e.wait(timeout=5)
             except KeyboardInterrupt:
                 self.stop()
             except RuntimeError as e:
                 self._logger.error(e)
-                self.stop()
             except Exception as e:
                 self._logger.error(e)
-                self.stop()
         if not self._client is None:
             self._client.close()
         self._logger.warning("upload service ended....")
@@ -61,6 +83,8 @@ class upload_service(StoppableThread):
             totalsent = totalsent + sent
 
     def is_socket_closed(self, sock: socket.socket) -> bool:
+        if sock is None:
+            return True
         try:
             # this will try to read bytes without blocking and also without removing them from buffer (peek only)
             data = sock.recv(16, socket.MSG_DONTWAIT | socket.MSG_PEEK)
@@ -71,7 +95,6 @@ class upload_service(StoppableThread):
         except ConnectionResetError:
             return True  # socket was closed for some other reason
         except Exception as e:
-            self._logger.error(
-                "unexpected exception when checking if a socket is closed")
-            return False
+            self._logger.warning(e)
+            return True
         return False
