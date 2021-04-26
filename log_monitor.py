@@ -1,15 +1,10 @@
-
-
-from re import template
 import sys
 import time
 import logging
 import queue
 import signal
 import argparse
-import os
 import json
-import logging
 import coloredlogs
 import threading
 import atexit
@@ -71,7 +66,12 @@ if __name__ == "__main__":
     arg_parser = argparse.ArgumentParser()
     arg_parser.add_argument("-c", "--config", help="config file path")
     arg_parser.add_argument("-v", "--version", action='store_true')
+    arg_parser.add_argument("-d", "-D", help="run as a daemon",
+                            action="store_true")
     args = arg_parser.parse_args()
+    if args.d:
+        print("run as daemon..todo...")
+        pass  # run as deamon, TODO
     if args.config:
         try:
             with open(args.config, 'r') as config_fd:
@@ -81,13 +81,17 @@ if __name__ == "__main__":
                 args.config, e.strerror))
         except json.decoder.JSONDecodeError as e:
             mylogs.error(e)
+    else:
+        try:
+            with open(app_config['system']['app_config'], 'w') as config_fd:
+                config_fd.write(json.dumps(app_config, indent=4))
+        except OSError as e:
+            mylogs.error("{0} open failed because :\n{1}!".format(
+                args.config, e.strerror))
 
     # 初始化配置
 
     # 从配置创建任务
-
-    app_config["cam"]["eth"]["name"] = 'lo'
-    logging.debug(get_camip_v4())
 
     files_readable_lock = threading.Lock()
     files_readable_cond = threading.Condition()
