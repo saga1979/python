@@ -25,6 +25,9 @@ class mem_monitor(StoppableThread):
     def run(self) -> None:
         self._logger.debug("mem monitor started..")
         wait_total = 0
+        threshold = 0
+        if 'threshold' in self._template:
+            threshold = self._template['threshold']
         while not self.stopped():
             if wait_total < self._interval:
                 self._ev.wait(1)
@@ -33,16 +36,17 @@ class mem_monitor(StoppableThread):
             wait_total = 0
             percent = round(psutil.virtual_memory().available /
                             psutil.virtual_memory().total, 2)
-            msg = {
-                'version': self._template['version'],
-                'log_type': self._template['log_type'],
-                'log_subtype': self._template['log_subtype'],
-                'log_time': time.strftime('%Y-%m-%d %H:%M:%S', time.localtime()),
-                'mem': "{}%".format(percent),
-                'node_ip': get_camip_v4(),
-                'node_hostname': get_hostname()
-            }
-            self._msgs.put(msg)
+            if percent >= threshold:
+                msg = {
+                    'version': self._template['version'],
+                    'log_type': self._template['log_type'],
+                    'log_subtype': self._template['log_subtype'],
+                    'log_time': time.strftime('%Y-%m-%d %H:%M:%S', time.localtime()),
+                    'mem': "{}%".format(percent),
+                    'node_ip': get_camip_v4(),
+                    'node_hostname': get_hostname()
+                }
+                self._msgs.put(msg)
         self._logger.debug("mem monitor stopped..")
         return super().run()
 
@@ -59,6 +63,9 @@ class cpu_monitor(StoppableThread):
     def run(self) -> None:
         self._logger.debug("cpu monitor started..")
         wait_total = 0
+        threshold = 0
+        if 'threshold' in self._template:
+            threshold = self._template['threshold']
         while not self.stopped():
             if wait_total < self._interval:
                 self._ev.wait(1)
@@ -66,7 +73,7 @@ class cpu_monitor(StoppableThread):
                 continue
             wait_total = 0
             percent = psutil.cpu_percent()
-            if percent > 0:  # 没有使用率无意义
+            if percent > threshold:
                 msg = {
                     'version': self._template['version'],
                     'log_type': self._template['log_type'],
@@ -146,6 +153,9 @@ class file_monitor(StoppableThread):
         for key in app_config['log'].keys():
             if 'file' not in app_config['log'][key]:
                 continue
+            if 'enabled' in app_config['log'][key]:
+                if not app_config['log'][key]['enabled']:
+                    continue
             file = app_config['log'][key]['file']
             try:
                 file = eval(app_config['log'][key]['file'])

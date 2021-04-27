@@ -53,7 +53,8 @@ app_config = {
             "log_subtype": "0x02",
             'type': "file",
             "file": r"'/tmp/z{}'.format(time.strftime('%Y%m%d%M', time.localtime()))",
-            "keytext": r"111"
+            "keytext": r"111",
+            "enabled": False
         },
         "heartloss": {
             "version": 1,
@@ -93,14 +94,16 @@ app_config = {
             "log_type": "0x28",
             "log_subtype": "0x02",
             'type': "system",
-            "interval": 60
+            "interval": 60,
+            "threshold": 0
         },
         "ram": {
             "version": 1,
             "log_type": "0x28",
             "log_subtype": "0x03",
             'type': "system",
-            "interval": 5
+            "interval": 60,
+            "threshold": 0
         }
     },
 }
