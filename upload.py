@@ -13,8 +13,6 @@ import threading
 class upload_service(StoppableThread):
     # 初始化的时候读取配置
     def __init__(self, *args, **kwargs):
-        self.e = threading.Event()
-
         self.msgs = kwargs['msgs']
         self._cond = kwargs['cond']
         self._lock = kwargs['lock']
@@ -24,13 +22,16 @@ class upload_service(StoppableThread):
 
     def run(self):
         # load cache msgs from disk cache file ? TODO
-        msgs_pool = []
+
         queue_max = self._server['queue']['max']
         is_cache = self._server['queue']['cache']
         is_log = self._server['queue']['log'][0]
         reconnect_interval = self._server['reconn']
         self._client = None
+        msgs_pool = []
+
         while not self.stopped():
+
             connected = True
             if self.is_socket_closed(self._client):
                 try:
@@ -47,28 +48,44 @@ class upload_service(StoppableThread):
                     while not self.stopped() and sleeped < reconnect_interval:
                         time.sleep(1)
                         sleeped += 1
-            if not connected:
+            while not self.msgs.empty() and not self.stopped():
+                msg = self.msgs.get(timeout=5)
+                msgs_pool.append(msg)
+                self.msgs.task_done()
+            if not connected:  # 检查下缓存的消息，超量后根据配置处理
+                max = 1000
+                if 'max' in self._server['queue']:
+                    max = self._server['queue']['max']
+                if len(msgs_pool) > max:
+                    cache = True
+                    if 'cache' in self._server['queue']:
+                        cache = self._server['queue']['cache'][0]
+                    if not cache:
+                        msgs_pool.clear()
+                    else:  # 后续如何处理缓存的消息？TODO
+                        cache_file_path = eval(
+                            self._server['queue']['cache'][1])
+                        with open(cache_file_path, 'a+') as cache_file:
+                            for msg in msgs_pool:
+                                json.dump(msg, cache_file)
+                                cache_file.write('\n')
+                    msgs_pool.clear()
                 continue
             try:
-                while not self.msgs.empty():
-                    msg = self.msgs.get(timeout=5)
-                    msgs_pool.append(msg)
-                    self.msgs.task_done()
-                # if send msg failed, or msgs pool size than 1000, write cache to disk file?TODO
-
-                for msg in msgs_pool:
-                    self._logger.debug(msg)
-                    self.send(msg)
-                    with open(eval(self._server['queue']['log'][1]), 'a+') as log_file:
+                with open(eval(self._server['queue']['log'][1]), 'a+') as log_file:
+                    for msg in msgs_pool:
+                        self._logger.debug(msg)
+                        self.send(msg)
                         json.dump(msg, log_file)
-                msgs_pool.clear()
-                self.e.wait(timeout=5)
+                        log_file.write('\n')
+
             except KeyboardInterrupt:
                 self.stop()
             except RuntimeError as e:
                 self._logger.error(e)
             except Exception as e:
                 self._logger.error(e)
+            msgs_pool.clear()
         if not self._client is None:
             self._client.close()
         self._logger.warning("upload service ended....")

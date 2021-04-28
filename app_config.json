@@ -13,11 +13,14 @@
         "port": 3333,
         "reconn": 5,
         "queue": {
-            "max": 1000,
-            "cache": false,
+            "max": 2,
+            "cache": [
+                true,
+                " './[{}]tosend.cache'.format(time.strftime('%Y%m%d', time.localtime())) "
+            ],
             "log": [
                 true,
-                "./[20210426]send.log"
+                " './[{}]send.log'.format(time.strftime('%Y%m%d', time.localtime())) "
             ]
         }
     },
@@ -53,7 +56,8 @@
             "log_subtype": "0x02",
             "type": "file",
             "file": "'/tmp/z{}'.format(time.strftime('%Y%m%d%M', time.localtime()))",
-            "keytext": "111"
+            "keytext": "111",
+            "enabled": false
         },
         "heartloss": {
             "version": 1,
@@ -92,14 +96,16 @@
             "log_type": "0x28",
             "log_subtype": "0x02",
             "type": "system",
-            "interval": 60
+            "interval": 5,
+            "threshold": 0
         },
         "ram": {
             "version": 1,
             "log_type": "0x28",
             "log_subtype": "0x03",
             "type": "system",
-            "interval": 5
+            "interval": 5,
+            "threshold": 0
         }
     }
 }

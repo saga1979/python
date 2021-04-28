@@ -15,8 +15,8 @@ app_config = {
         "reconn": 5,  # 重连得间隔（秒）
         "queue": {
             "max": 1000,
-            "cache": False,
-            "log": (True, './[{}]send.log'.format(time.strftime('%Y%m%d', time.localtime())))
+            "cache": (True, r" './[{}]tosend.cache'.format(time.strftime('%Y%m%d', time.localtime())) "),
+            "log": (True, r" './[{}]send.log'.format(time.strftime('%Y%m%d', time.localtime())) ")
         }
     },
     "cam": {
