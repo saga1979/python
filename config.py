@@ -51,9 +51,12 @@ app_config = {
             "version": 1,
             "log_type": "0x26",
             "log_subtype": "0x02",
-            'type': "file",
-            "file": r"'/tmp/z{}'.format(time.strftime('%Y%m%d%M', time.localtime()))",
-            "keytext": r"111",
+            "user_id": 1,
+            "user_name": 2,
+            "uaser_addr": 3,
+            "timecolumn": 4,
+            'type': "table",
+            "table": "",
             "enabled": False
         },
         "heartloss": {

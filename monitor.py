@@ -245,6 +245,9 @@ class database_monitor(StoppableThread):
             'done': [],
             'todo': []
         }
+        self._db_record['multi_login'] = {
+            'last': 1
+        }
         try:
             with open(self._log_file, 'r') as log_fd:
                 self._db_record = json.load(log_fd)
@@ -256,6 +259,7 @@ class database_monitor(StoppableThread):
         cursor = None
         while not self.stopped():
             try:
+                func_enabled = False
                 conn = mysql.connector.connect(host=self._db_conf['host'],
                                                database=self._db_conf['db'],
                                                user=self._db_conf['user'],
@@ -413,6 +417,45 @@ class database_monitor(StoppableThread):
                             self._logger.debug(
                                 "[database][session]:{}".format(sub_msg))
                             self._msgs.put(sub_msg)
+                # 多点登录处理
+                multi_login_config = app_config['log']['multi_login']
+                if "enabled" in multi_login_config:
+                    func_enabled = multi_login_config["enabled"]
+                if not func_enabled:
+                    continue
+                cursor.execute(
+                    "select count(*) from {};".format(multi_login_config["table"]))
+                records = cursor.fetchall()
+                if len(records) <= 0:
+                    continue
+                record_count = records[0][0]
+                record_readed = self._db_record['multi_login']['last']
+
+                if record_count <= record_readed:
+                    continue
+                cursor.execute("select * from {} limit {},{}".format(
+                    multi_login_config["table"], record_readed, record_count - record_readed))
+                records = cursor.fetchall()
+                # 更新已读取的记录索引
+                self._db_record['multi_login']['last'] = alarm_readed + \
+                    len(records)
+                for record in records:
+                    msg = {
+                        'version': self._template['multi_login']['version'],
+                        'log_type': self._template['multi_login']['log_type'],
+                        'log_subtype': self._template['multi_login']['log_subtype'],
+                        'log_time': record[self._template['multi_login']['timecolumn']],
+                        'dev_name': get_hostname(),
+                        'dev_ipv4': get_camip_v4(),
+                        'dev_ipv6': get_camip_v6(),
+                        'user_id': record[self._template['multi_login']['user_id']],
+                        'user_name': record[self._template['multi_login']['user_name']],
+                        'user_addr': record[self._template['multi_login']['user_addr']]
+
+                    }
+                    self._logger.debug("[database][multi]:{}".format(msg))
+                    self._msgs.put(msg)
+
             except mysql.connector.errors.ProgrammingError as e:
                 self._logger.warning(e)
             finally:
